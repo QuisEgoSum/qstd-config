@@ -119,7 +119,8 @@ class Config(BaseConfig):
         
 manager = ConfigManager(
     Config,
-    {'name': 'Project name', 'version': 'project version'}
+    {'name': 'Project name', 'version': 'project version'},
+    multiprocessing_mode=True
 )
 
 config = manager.load_config()
