@@ -32,7 +32,8 @@ class ConfigManager(typing.Generic[T]):
         pre_validation_hook: typing.Callable[[dict], dict] = lambda _config: _config,
         parse_config_paths_from_args: bool = True,
         parse_config_paths_from_env: bool = True,
-        multiprocessing_mode: bool = False
+        multiprocessing_mode: bool = False,
+        multiprocessing_manager: typing.Optional[Manager] = None
     ):
         self.config_cls = config_cls
         self.config_paths = config_paths or []
@@ -48,8 +49,9 @@ class ConfigManager(typing.Generic[T]):
         self._config_dict = ProxyConfigDictContener(None)
         if multiprocessing_mode:
             if current_process().name == 'MainProcess':
-                manager = Manager()
-                self._config_dict.config_dict = manager.dict()
+                if multiprocessing_manager is None:
+                    multiprocessing_manager = Manager()
+                self._config_dict.config_dict = multiprocessing_manager.dict()
             else:
                 self._config_dict.config_dict = dict()
         else:
@@ -72,7 +74,7 @@ class ConfigManager(typing.Generic[T]):
     def get_config(self):
         return ProxyConfig(self._config_dict)
 
-    def load_config(self) -> typing.Union[T]:
+    def load_config(self) -> typing.Union[ProxyConfig, T]:
         config_dict = dict()
 
         if self.project_metadata_as:

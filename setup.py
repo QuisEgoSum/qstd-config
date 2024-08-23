@@ -8,7 +8,7 @@ def readme():
 
 setup(
     name='qstd_config',
-    version='0.2.1',
+    version='0.3.0',
     author='QuisEgoSum',
     author_email='subbotin.evdokim@gmail.com',
     description='Application configuration manager',

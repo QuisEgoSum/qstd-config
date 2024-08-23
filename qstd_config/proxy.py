@@ -13,6 +13,14 @@ class ProxyConfig:
         self._state = value
         self._config_dict = config_dict
 
+    def __getitem__(self, item: str):
+        return getattr(self, item)
+
+    def __contains__(self, item):
+        if self._state is not None:
+            return item in self._state
+        return item in self._config_dict
+
     def __getattribute__(self, item):
         if item in exclude_proxy_fields:
             return object.__getattribute__(self, item)
@@ -27,4 +35,6 @@ class ProxyConfig:
         return value
 
     def dict(self):
+        if self._state:
+            return copy.deepcopy(self._state)
         return copy.deepcopy(self._config_dict.config_dict)

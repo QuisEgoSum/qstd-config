@@ -29,7 +29,8 @@ manager = ConfigManager(
         'version': '0.1.0'
     },
     root_config_dir=os.path.dirname(__file__),
-    multiprocessing_mode=True
+    multiprocessing_mode=True,
+    config_paths=['./config.yaml']
 )
 
 with open(os.path.join(manager.root_config_dir, 'config.yaml'), 'w') as file:

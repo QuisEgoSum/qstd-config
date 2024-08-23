@@ -21,10 +21,11 @@ def _fill_env_list(schema: dict, result: typing.List[EnvOption], parts: typing.L
         for next_schema in schema['allOf']:
             _fill_env_list(next_schema, result, parts, project_name)
     elif schema['type'] == 'object' or 'object' in schema['type']:
-        for name, next_schema in schema['properties'].items():
-            current_parts = list(parts)
-            current_parts.append(name)
-            _fill_env_list(next_schema, result, current_parts, project_name)
+        if 'properties' in schema:
+            for name, next_schema in schema['properties'].items():
+                current_parts = list(parts)
+                current_parts.append(name)
+                _fill_env_list(next_schema, result, current_parts, project_name)
     else:
         current_paths = list(parts)
         name_parts = [unify_name(env_name) for env_name in current_paths]

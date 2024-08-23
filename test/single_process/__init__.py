@@ -41,7 +41,13 @@ manager = ConfigManager(
         'name': 'Test config',
         'version': '0.1.0'
     },
-    root_config_dir=os.path.dirname(__file__)
+    root_config_dir=os.path.dirname(__file__),
+    config_paths=[
+        './config1.yaml',
+        './config2.yaml',
+        './config3.yaml',
+        './config4.yaml'
+    ]
 )
 
 
