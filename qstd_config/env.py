@@ -17,8 +17,8 @@ class EnvOption:
 
 
 def _fill_env_list(schema: dict, result: typing.List[EnvOption], parts: typing.List[str], project_name: str) -> None:
-    if 'allOf' in schema:
-        for next_schema in schema['allOf']:
+    if 'allOf' in schema or 'anyOf' in schema:
+        for next_schema in schema.get('allOf') or schema.get('anyOf'):
             _fill_env_list(next_schema, result, parts, project_name)
     elif schema['type'] == 'object' or 'object' in schema['type']:
         if 'properties' in schema:
