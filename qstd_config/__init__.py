@@ -1,2 +1,2 @@
-from .config import ConfigManager
-from .base import BaseConfig
+from .manager import ConfigManager, ProjectMetadata
+from .config import InMemoryConfig, MultiprocessingConfig
