@@ -37,11 +37,11 @@ class ConfigManager(typing.Generic[T]):
     ):
         self.config_cls = config_cls
         self.config_paths = config_paths or []
+        self.project_metadata = project_metadata
         if parse_config_paths_from_env:
-            self.config_paths.extend(get_override_config_paths_from_env(project_metadata['name'], root_config_dir))
+            self.config_paths.extend(get_override_config_paths_from_env(self.get_project_name(), root_config_dir))
         if parse_config_paths_from_args:
             self.config_paths.extend(get_override_config_paths_from_args(root_config_dir))
-        self.project_metadata = project_metadata
         self.project_metadata_as = project_metadata_as
         self.root_config_dir = root_config_dir
         self.pre_validation_hook = pre_validation_hook
@@ -56,8 +56,11 @@ class ConfigManager(typing.Generic[T]):
                 self._config_dict.config_dict = dict()
         else:
             self._config_dict.config_dict = dict()
-        self.env_list = create_env_list_from_schema(config_cls, unify_name(self.project_metadata['name']))
+        self.env_list = create_env_list_from_schema(config_cls, unify_name(self.get_project_name()))
         self.used_env = []
+
+    def get_project_name(self):
+        return self.project_metadata['name']
 
     def set_multiprocessing_config_dict(self, config_dict):
         if self.multiprocessing_mode is False:
