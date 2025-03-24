@@ -1,3 +1,5 @@
+import collections
+import json
 import multiprocessing
 import os
 import typing
@@ -7,8 +9,7 @@ import yaml
 from pydantic import BaseModel
 
 from . import utils
-from .config import BaseConfig, InMemoryConfig, MultiprocessingConfig
-
+from .config import BaseConfig, InMemoryConfig, MultiprocessingConfig, ConfigEnvProperty
 
 T = typing.TypeVar('T', bound=BaseConfig)
 
@@ -64,20 +65,35 @@ class ConfigManager:
         self.pre_validation_hook = pre_validation_hook
         self.used_env = []
         if config_paths:
-            self.config_paths.extend([self.abs_config_path(path) for path in config_paths])
+            self.config_paths = [self.abs_config_path(path) for path in config_paths]
         if parse_config_paths_from_env:
             self.config_paths.extend(self.get_override_config_paths_from_env())
         if parse_config_paths_from_args:
             self.config_paths.extend(self.get_override_config_paths_from_args())
-        project_name = self.get_project_name()
-        env_parts = []
-        if project_name:
-            env_parts.append(project_name)
 
         self._multiprocessing_manager = multiprocessing_manager
         self._multiprocessing_dict = None
 
         self._config = None
+
+        self._compile_env_list()
+
+    def _compile_env_list(self):
+        project_name = self.get_project_name()
+        if project_name is None:
+            self.__qstd_env_properties__ = self.config_cls.__qstd_env_properties__
+            return
+        project_name = utils.unify_name(project_name)
+        env_list = []
+        for env in self.config_cls.__qstd_env_properties__:
+            env_list.append(
+                ConfigEnvProperty(
+                    name=project_name + '_' + env.name,
+                    property_path=env.path,
+                    property_type=env.type
+                )
+            )
+        self.__qstd_env_properties__ = env_list
 
     def config_factory(self, valid_configuration: BaseModel):
         if issubclass(self.config_cls, InMemoryConfig):
@@ -126,6 +142,13 @@ class ConfigManager:
             self._config.__update_configuration__(valid_configuration)
         return self._config
 
+    @classmethod
+    def parse_env_value(cls, value: str, env: ConfigEnvProperty) -> typing.Any:
+        if typing.get_origin(env.type) in (list, tuple, dict, set, frozenset)\
+                or env.type in (collections.deque, type(None)):
+            return json.loads(value)
+        return value
+
     def assign_env_to_dict(self, configuration: dict):
         """
         Maps environment variables to the configuration dictionary.
@@ -136,19 +159,23 @@ class ConfigManager:
         Returns:
             list: A list of environment variables that were used to populate the configuration.
         """
-        used_env = []
+        used_env = set()
         project_name = self.get_project_name()
         if project_name is not None:
             project_name = utils.unify_name(project_name)
-        for config_property in self.config_cls.__qstd_configuration_properties__:
-            env = config_property.env
+        for config_property in self.get_env_list():
+            env = config_property.name
             if project_name:
                 env = '_'.join([project_name, env])
             value = os.environ.get(env, None)
             if value is None:
                 continue
+            for conflict_env in config_property.conflict_env:
+                if conflict_env in used_env:
+                    raise ValueError(f'Env {config_property.name} has conflicted with {conflict_env}')
+            value = self.parse_env_value(value, config_property)
             current_value = configuration
-            last_index = len(config_property.path)
+            last_index = len(config_property.path) - 1
             for index, key in enumerate(config_property.path):
                 if index == last_index:
                     current_value[key] = value
@@ -156,8 +183,8 @@ class ConfigManager:
                     if key not in current_value:
                         current_value[key] = dict()
                     current_value = current_value[key]
-            used_env.append(config_property.env)
-        return used_env
+            used_env.add(config_property.name)
+        return list(used_env)
 
     def get_project_name(self) -> typing.Optional[str]:
         """
@@ -229,3 +256,6 @@ class ConfigManager:
         if argument_paths:
             paths.extend(self.abs_config_path(path) for path in argument_paths.split(';'))
         return paths
+
+    def get_env_list(self):
+        return list(self.__qstd_env_properties__)

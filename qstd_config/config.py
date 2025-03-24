@@ -10,15 +10,30 @@ from pydantic._internal._decorators import PydanticDescriptorProxy
 from . import utils
 
 
-class ConfigProperty:
-    key: str
-    env: str
+class ConfigEnvProperty:
+    name: str
     path: typing.List[str]
+    type: typing.Any
+    conflict_env: typing.Set[str]
 
-    def __init__(self, key: str, parts: typing.List[str]):
-        self.key = key
-        self.env = '_'.join([utils.unify_name(name) for name in parts])
-        self.path = parts
+    def __init__(
+        self,
+        *,
+        name: str,
+        property_path: typing.List[str],
+        property_type: typing.Any,
+        conflict_env: typing.Set[str] = None
+    ):
+        self.name = name
+        self.path = property_path
+        self.type = property_type
+        self.conflict_env = conflict_env or set()
+
+    def add_conflict_env(self, name: str):
+        self.conflict_env.add(name)
+
+    def __str__(self):
+        return self.name
 
     def __repr__(self):
         return f"{type(self).__name__}({', '.join(f'{k}={v!r}' for k, v in vars(self).items())})"
@@ -52,8 +67,8 @@ class _ConfigMeta(abc.ABCMeta):
         """
         result_cls = super().__new__(cls, name, bases, dct)
 
-        nested_configuration_cls = []
-        configuration_properties = []
+        nested_configuration_fields = []
+        env_properties = dict()
         all_properties = []
         pydantic_fields = {}
         pydantic_validators = {}
@@ -62,11 +77,17 @@ class _ConfigMeta(abc.ABCMeta):
                 all_properties.append(_name)
                 _type = cls._cast_nested_configuration_type_to_pydantic(value)
                 if _type is not None:
-                    nested_configuration_cls.append(_name)
+                    nested_configuration_fields.append(_name)
                 else:
                     _type = value
                 pydantic_fields[_name] = (_type, cls._get_default_value(_cls, _name))
-                configuration_properties.extend(cls._compile_property_list(_name, value))
+                for env_property in cls._compile_env_property_list(_name, value):
+                    if env_property.name in env_properties:
+                        env_properties[env_property.name].type = typing.Union[
+                            env_properties[env_property.name].type, env_property.type
+                        ]
+                    else:
+                        env_properties[env_property.name] = env_property
             for method_name, method in _cls.__dict__.items():
                 if isinstance(method, PydanticDescriptorProxy):
                     pydantic_validators[method_name] = method
@@ -77,8 +98,8 @@ class _ConfigMeta(abc.ABCMeta):
         )
         pydantic_model.__qstd_config_cls__ = result_cls
         result_cls.__qstd_pydantic_cls__ = pydantic_model
-        result_cls.__qstd_nested_configuration_fields__ = frozenset(nested_configuration_cls)
-        result_cls.__qstd_configuration_properties__ = configuration_properties
+        result_cls.__qstd_nested_configuration_fields__ = frozenset(nested_configuration_fields)
+        result_cls.__qstd_env_properties__ = list(env_properties.values())
         result_cls.__qstd_all_properties__ = frozenset(all_properties)
         return result_cls
 
@@ -164,6 +185,15 @@ class _ConfigMeta(abc.ABCMeta):
             return _type_origin[tuple(_type_args)]
 
     @classmethod
+    def _is_optional_type(cls, value: typing.Any) -> bool:
+        origin = typing.get_origin(value)
+        if origin is typing.Union:
+            args = typing.get_args(value)
+            if len(args) == 2 and type(None) in args:
+                return True
+        return False
+
+    @classmethod
     def _is_single_type_with_configuration(cls, value: typing.Any) -> bool:
         """
          Checks if the value is a type that can be used for single configuration fields (e.g., Annotated, Optional).
@@ -174,12 +204,12 @@ class _ConfigMeta(abc.ABCMeta):
          Returns:
              bool: True if the value is a single type configuration, False otherwise.
          """
-        is_single_type = any(
-            typing.get_origin(value) is t for t in (
-                typing.Annotated, typing.Optional, typing.Set
-            )
-        )
-        if is_single_type is False:
+        if cls._is_base_config(value):
+            return True
+        origin_type = typing.get_origin(value)
+        if origin_type is None:
+            return False
+        if typing.get_origin(value) not in (typing.Annotated, typing.Union):
             return False
         _type_args = typing.get_args(value)
         for _type_arg in _type_args:
@@ -188,12 +218,12 @@ class _ConfigMeta(abc.ABCMeta):
         return False
 
     @classmethod
-    def _compile_property_list(
+    def _compile_env_property_list(
         cls,
         name: str,
         value,
         current_path: typing.List[str] = None
-    ) -> typing.List[ConfigProperty]:
+    ) -> typing.List[ConfigEnvProperty]:
         """
         Compiles the list of configuration properties for the given field, including
         nested configuration fields if applicable.
@@ -213,19 +243,32 @@ class _ConfigMeta(abc.ABCMeta):
         next_path = list(current_path)
         next_path.append(name)
         if cls._is_base_config(value):
-            for config_property in value.__qstd_configuration_properties__:
+            for config_property in value.__qstd_env_properties__:
                 property_path = list(next_path)
                 property_path.extend(config_property.path)
-                properties.append(ConfigProperty(
-                    key=config_property.key, parts=property_path
+                properties.append(ConfigEnvProperty(
+                    name='_'.join([utils.unify_name(name) for name in property_path]),
+                    property_path=property_path,
+                    property_type=config_property.type
                 ))
         elif cls._is_single_type_with_configuration(value):
+            _properties: typing.List[typing.List[ConfigEnvProperty]] = []
             for _type_arg in typing.get_args(value):
-                properties.extend(cls._compile_property_list(name, _type_arg, list(next_path)))
+                _env_list = cls._compile_env_property_list(name, _type_arg, list(current_path))
+                properties.extend(_env_list)
+                if len(_env_list) != 0:
+                    _properties.append(_env_list)
+            for i in range(len(_properties)):
+                for property_a in _properties[i]:
+                    for property_list_b in _properties[i + 1:]:
+                        for property_b in property_list_b:
+                            property_b.add_conflict_env(property_a.name)
+                            property_a.add_conflict_env(property_b.name)
         else:
-            properties.append(ConfigProperty(
-                key=name,
-                parts=next_path
+            properties.append(ConfigEnvProperty(
+                name='_'.join([utils.unify_name(name) for name in next_path]),
+                property_path=next_path,
+                property_type=value
             ))
         return properties
 
