@@ -1,40 +1,47 @@
-import copy
+import typing
 
-exclude_proxy_fields = frozenset(['_state', '_config_dict', 'dict'])
+from .base import BaseConfig
+from .storage import StorageABC
 
-
-class ProxyConfigDictContener:
-    def __init__(self, config_dict):
-        self.config_dict = config_dict
+T = typing.TypeVar('T', bound=BaseConfig)
 
 
-class ProxyConfig:
-    def __init__(self, config_dict: ProxyConfigDictContener, value=None):
-        self._state = value
-        self._config_dict = config_dict
+class ProxyConfig(typing.Generic[T]):
+    """
+    A proxy object for safe and lazy access to the configuration.
+    Defers all attribute access to the bound storage's current config instance.
+    """
 
-    def __getitem__(self, item: str):
-        return getattr(self, item)
+    _storage: typing.Optional[StorageABC[T]]
 
-    def __contains__(self, item):
-        if self._state is not None:
-            return item in self._state
-        return item in self._config_dict
+    def __init__(self) -> None:
+        self._storage = None
 
-    def __getattribute__(self, item):
-        if item in exclude_proxy_fields:
-            return object.__getattribute__(self, item)
-        if self._state is None:
-            value = self._config_dict.config_dict.get(item)
-        else:
-            value = self._state.get(item)
-        if isinstance(value, dict):
-            return ProxyConfig(self._config_dict, value)
-        if isinstance(value, list):
-            return [ProxyConfig(self._config_dict, val) if isinstance(val, dict) else val for val in value]
-        return value
+    def bind(self, storage: StorageABC[T]) -> None:
+        """
+        Binds a storage instance to the proxy.
+        Can only be called once.
+        """
 
-    def dict(self):
-        if self._state:
-            return copy.deepcopy(self._state)
-        return copy.deepcopy(self._config_dict.config_dict)
+        if self._storage is not None:
+            raise RuntimeError('Config storage is already bound')
+        self._storage = storage
+
+    @property
+    def is_ready(self) -> bool:
+        """
+        Returns whether the proxy has been successfully bound and initialized.
+        """
+
+        return self._storage is not None and self._storage.is_initialized
+
+    def __getattr__(self, item: str):
+        if self._storage is None:
+            raise RuntimeError('Config not initialized yet')
+        return getattr(self._storage.current(), item)
+
+    def __repr__(self) -> str:
+        return self._storage.current().__repr__() if self._storage is not None else 'Config not initialized yet'
+
+    def __str__(self) -> str:
+        return self._storage.current().__str__() if self._storage is not None else 'Config not initialized yet'

@@ -1,0 +1,10 @@
+{
+  "include": ["qstd_config", "tests"],
+  "exclude": ["build", "dist", ".venv", "examples"],
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": true,
+  "reportOptionalMemberAccess": true,
+  "typeCheckingMode": "strict",
+  "venvPath": ".",
+  "venv": ".venv"
+}

@@ -1,0 +1,13 @@
+target-version = "py39"
+line-length = 120
+src = ["qstd_config", "tests"]
+exclude = ["example"]
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM", "TID", "T20", "ARG"]
+ignore = ["B008", "SIM102", "UP006", "UP007"]
+
+[lint.isort]
+combine-as-imports = true
+force-single-line = false
+lines-between-types = 1
