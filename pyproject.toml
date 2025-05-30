@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=65.5.1", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qstd-config"
+version = "1.0.0"
+description = "Application configuration manager"
+readme = { file = "README.md", content-type = "text/markdown" }
+authors = [
+    { name = "QuisEgoSum", email = "subbotin.evdokim@gmail.com" },
+]
+license = "MIT"
+requires-python = ">=3.9"
+keywords = ["config", "yaml", "env"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Development Status :: 5 - Production/Stable",
+]
+dependencies = [
+    "pydantic>=2.0.0",
+    "pydantic_core>=2.0.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9.0",
+    "tox>=4.26.0",
+    "pytest-cov>=6.0,<7.0",
+    "ruff>=0.11.2",
+    "black>=25.1.0",
+    "build>=1.2.2",
+    "twine>=6.1.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/QuisEgoSum/qstd-config"
+"Repository" = "https://github.com/QuisEgoSum/qstd-config"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["tests*", "example*"]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 88
+src = ["src", "tests", "example"]
+exclude = ["dist", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM", "TID", "T20", "ARG", "COM812", "D204"]
+ignore = ["B008", "SIM102", "UP006", "UP007", "E501"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+force-single-line = false
+lines-between-types = 1
+
+[tool.black]
+line-length = 88
+target-version = ["py39"]
+skip-string-normalization = true

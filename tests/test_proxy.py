@@ -1,22 +1,21 @@
 import pytest
 
-from qstd_config.proxy import ProxyConfig
-from qstd_config.storage import InMemoryStorage
-
-from fixtures.sample_config import AppConfig
+from qstd_config import ConfigManager, InMemoryStorage, ProxyConfig
+from tests.fixtures.config import AppConfig
 
 
-def test_proxy_access():
-    proxy: ProxyConfig[AppConfig] = ProxyConfig()
-    with pytest.raises(RuntimeError):
-        proxy.debug  # noqa: B018
+def test_proxy():
+    manager = ConfigManager(AppConfig)
+    proxy = manager.get_proxy(InMemoryStorage)
 
-    assert proxy.is_ready is False
-
-    proxy.bind(InMemoryStorage(AppConfig(debug=True)))
-
+    assert isinstance(proxy, ProxyConfig)
+    assert isinstance(proxy.config, AppConfig)
+    assert isinstance(proxy.debug, bool)
+    proxy.reload()
     assert proxy.is_ready is True
-    assert proxy.debug is True
-
+    proxy.setup()
     proxy.__repr__()
     proxy.__str__()
+
+    with pytest.raises(AttributeError):
+        proxy.unknown_field  # noqa: B018

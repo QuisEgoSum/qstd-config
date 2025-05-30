@@ -5,6 +5,12 @@ repos:
       - id: ruff
         args: []
 
+  - repo: https://github.com/psf/black
+    rev: 25.1.0
+    hooks:
+      - id: black
+        args: ["--line-length=88", "--skip-string-normalization"]
+
   - repo: local
     hooks:
       - id: pyright
@@ -16,11 +22,8 @@ repos:
 
   - repo: local
     hooks:
-      - id: pytest
-        name: pytest
-        entry: bash
-        args:
-          - -c
-          - 'PYTHONPATH=tests pytest'
+      - id: tox
+        name: Tox
+        entry: tox
         language: system
         pass_filenames: false

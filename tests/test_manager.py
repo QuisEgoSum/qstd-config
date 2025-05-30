@@ -1,32 +1,35 @@
 import os
-import sys
 import typing
 
+from pathlib import Path
 from unittest.mock import mock_open, patch
 
-from qstd_config import MultiprocessingStorage, ProjectMetadataType
-from qstd_config.manager import ConfigManager
+import pytest
 
-from fixtures.sample_config import AppConfig
+from pydantic_core import PydanticUndefined
+
+from qstd_config import ConfigManager, EnvironmentField, MultiprocessingDictStorage
+from qstd_config.exceptions import ConfigValidationError
+from tests.fixtures.config import AppConfig, ComplexConfiguration
 
 
 def test_load_config_from_initial_data():
     manager = ConfigManager(
         AppConfig,
-        project_metadata={'name': 'project', 'version': '1.0.0'},
+        default_config_values={'debug': 'true', 'nested': {'flag': 'true'}},
     )
-    config = manager.load_config_model({'debug': 'true', 'nested': {'flag': 'true'}})
+    config = manager.load_config_model()
 
     assert config.debug is True
     assert config.nested.flag is True
 
 
 def test_load_config_from_yaml():
-    manager = ConfigManager(
-        AppConfig,
-        project_metadata={'name': 'project', 'version': '1.0.0'},
-        config_paths=['config.yaml']
-    )
+    with patch.object(Path, "exists", return_value=True):
+        manager = ConfigManager(
+            AppConfig,
+            config_paths=['config.yaml'],
+        )
 
     config_yaml = '''
     debug: true
@@ -35,8 +38,10 @@ def test_load_config_from_yaml():
         flag: true
     '''
 
-    with patch('qstd_config.manager.open', mock_open(read_data=config_yaml)):
+    with patch('qstd_config.loader.file_loader.open', mock_open(read_data=config_yaml)):
         config = manager.load_config_model()
+
+    assert manager.config_paths == [Path('config.yaml')]
 
     assert config.debug is True
     assert config.string == 'test'
@@ -44,11 +49,11 @@ def test_load_config_from_yaml():
 
 
 def test_load_config_from_yaml_with_override():
-    manager = ConfigManager(
-        AppConfig,
-        project_metadata={'name': 'project', 'version': '1.0.0'},
-        config_paths=['config.yaml', 'config2.yaml']
-    )
+    with patch.object(Path, "exists", return_value=True):
+        manager = ConfigManager(
+            AppConfig,
+            config_paths=['config.yaml', 'config2.yaml'],
+        )
 
     config_yaml = '''
     debug: true
@@ -67,7 +72,10 @@ def test_load_config_from_yaml_with_override():
     mock1 = mock_open(read_data=config_yaml)
     mock2 = mock_open(read_data=config2_yaml)
 
-    with patch('qstd_config.manager.open', side_effect=[mock1.return_value, mock2.return_value]):
+    with patch(
+        'qstd_config.loader.file_loader.open',
+        side_effect=[mock1.return_value, mock2.return_value],
+    ):
         config = manager.load_config_model()
 
     assert config.debug is True
@@ -76,12 +84,20 @@ def test_load_config_from_yaml_with_override():
 
 
 def test_load_config_from_all_sources_with_override():
+    def pre_validation_hook(
+        raw_config: typing.MutableMapping[str, typing.Any],
+    ) -> typing.MutableMapping[str, typing.Any]:
+        raw_config['string'] = 'from pre validation hook'
+        return raw_config
 
-    manager = ConfigManager(
-        AppConfig,
-        project_metadata={'name': 'project', 'version': '1.0.0'},
-        config_paths=['config.yaml']
-    )
+    with patch.object(Path, "exists", return_value=True):
+        manager = ConfigManager(
+            AppConfig,
+            project_name='project',
+            config_paths=['config.yaml'],
+            default_config_values={'debug': True},
+            pre_validation_hook=pre_validation_hook,
+        )
 
     config_yaml = '''
     string: test
@@ -91,11 +107,11 @@ def test_load_config_from_all_sources_with_override():
 
     os.environ['PROJECT_NESTED_FLAG'] = 'true'
 
-    with patch('qstd_config.manager.open', mock_open(read_data=config_yaml)):
-        config = manager.load_config_model({'debug': True})
+    with patch('qstd_config.loader.file_loader.open', mock_open(read_data=config_yaml)):
+        config = manager.load_config_model()
 
     assert config.debug is True
-    assert config.string == 'test'
+    assert config.string == 'from pre validation hook'
     assert config.nested.flag is True
 
 
@@ -103,108 +119,139 @@ def test_multiprocess_simulation():
     # main process
     manager_main = ConfigManager(
         AppConfig,
-        project_metadata={'name': 'project', 'version': '1.0.0'},
-        storage=MultiprocessingStorage
+        project_name='project',
+        default_config_values={'debug': 'true'},
     )
-    proxy_main = manager_main.load_config_model({'debug': 'true'})
+    proxy_main = manager_main.get_proxy(MultiprocessingDictStorage)
+
+    ctx = MultiprocessingDictStorage.create_shared_context()
+
+    proxy_main.setup(multiprocessing_dict=ctx)
 
     assert proxy_main.is_ready is True
 
     assert proxy_main.debug is True
 
-    context = manager_main.get_multiprocessing_context()
-
     # simulated child process
-    with patch('multiprocessing.current_process') as mock_proc:
-        mock_proc.return_value.name = 'spawned'
-
-        manager_child = ConfigManager(
-            AppConfig,
-            project_metadata={'name': 'project', 'version': '1.0.0'},
-            storage=MultiprocessingStorage
-        )
-        proxy_child = manager_child.load_config_model()
-
-        assert proxy_child.is_ready is False
-
-        manager_child.set_multiprocessing_context(context)
-
-        assert proxy_child.is_ready is True
-
-        assert proxy_child.debug is True
-
-
-def test_config_path_parsing_from_args():
-    with patch.object(sys, 'argv', ['app.py', '--config=config.yaml']):
-        manager = ConfigManager(
-            AppConfig,
-            project_metadata={'name': 'project', 'version': '1.0.0'}
-        )
-        assert manager._config_paths == ['config.yaml']  # type: ignore[reportPrivateUsage]
-
-    with patch.object(sys, 'argv', ['app.py', '--config=./config.yaml']):
-        manager = ConfigManager(
-            AppConfig,
-            project_metadata={'name': 'project', 'version': '1.0.0'}
-        )
-        assert manager._config_paths == ['./config.yaml']  # type: ignore[reportPrivateUsage]
-
-    with patch.object(sys, 'argv', ['app.py', '--config=config.yaml;/etc/project/override/override.yaml']):
-        manager = ConfigManager(
-            AppConfig,
-            project_metadata={'name': 'project', 'version': '1.0.0'},
-            root_config_path='/etc/project'
-        )
-        assert manager._config_paths == [    # type: ignore[reportPrivateUsage]
-            '/etc/project/config.yaml', '/etc/project/override/override.yaml'
-        ]
-
-
-def test_config_path_parsing_from_env():
-    os.environ['PROJECT_CONFIG'] = 'config.yaml'
-    manager = ConfigManager(
+    manager_child = ConfigManager(
         AppConfig,
-        project_metadata={'name': 'project', 'version': '1.0.0'}
+        project_name='project',
+        default_config_values={'debug': 'true'},
     )
-    assert manager._config_paths == ['config.yaml']  # type: ignore[reportPrivateUsage]
+    proxy_child = manager_child.get_proxy(MultiprocessingDictStorage)
 
-    os.environ['PROJECT_CONFIG'] = './config.yaml'
-    manager = ConfigManager(
-        AppConfig,
-        project_metadata={'name': 'project', 'version': '1.0.0'}
-    )
-    assert manager._config_paths == ['./config.yaml']  # type: ignore[reportPrivateUsage]
+    assert proxy_child.is_ready is False
 
-    os.environ['PROJECT_CONFIG'] = './config.yaml;/etc/project/override/override.yaml'
-    manager = ConfigManager(
-        AppConfig,
-        project_metadata={'name': 'project', 'version': '1.0.0'},
-        root_config_path='/etc/project'
-    )
-    assert manager._config_paths == [  # type: ignore[reportPrivateUsage]
-        '/etc/project/config.yaml', '/etc/project/override/override.yaml'
-    ]
+    proxy_child.setup(multiprocessing_dict=ctx)
+
+    assert proxy_child.is_ready is True
+
+    assert proxy_child.debug is True
 
 
-def test_used_env():
+def test_env_fields_access():
     os.environ['DEBUG_OVERRIDE'] = 'true'
-    os.environ['PROJECT_NESTED_FLAG'] = 'true'
-    manager = ConfigManager(
-        AppConfig,
-        project_metadata={'name': 'project', 'version': '1.0.0'}
-    )
+    os.environ['NESTED_FLAG'] = 'true'
+
+    manager = ConfigManager(AppConfig)
+
     manager.load_config_model()
-    assert set(manager.used_env) == {'DEBUG_OVERRIDE', 'PROJECT_NESTED_FLAG'}
+
+    assert manager.env_list == [
+        EnvironmentField(
+            title='debug',
+            name='DEBUG_OVERRIDE',
+            field_path=['debug'],
+            type=bool,
+            default=False,
+            description=None,
+            examples=None,
+        ),
+        EnvironmentField(
+            title='string',
+            name='STRING',
+            field_path=['string'],
+            type=str,
+            default='string',
+            description=None,
+            examples=None,
+        ),
+        EnvironmentField(
+            title='flag',
+            name='NESTED_FLAG',
+            field_path=['nested', 'flag'],
+            type=bool,
+            default=False,
+            description='Nested flag',
+            examples=None,
+        ),
+    ]
+    assert {env.name for env in manager.used_env_list} == {
+        'DEBUG_OVERRIDE',
+        'NESTED_FLAG',
+    }
+    assert isinstance(manager.render_env_help(), str)
 
 
-def test_without_project_name():
-    class OverrideConfigManager(ConfigManager[AppConfig, ProjectMetadataType]):
-        def get_project_name(self) -> typing.Optional[str]:
-            return None
+def test_raise_validation_error():
+    with patch.object(Path, "exists", return_value=True):
+        manager = ConfigManager(AppConfig, config_paths=['config.yaml'])
 
-    manager = OverrideConfigManager(
-        AppConfig,
-        project_metadata={'name': 'project', 'version': '1.0.0'}
-    )
+    config_yaml = '''
+    debug: 123
+    string:
+        field: 1
+    nested:
+        flag:
+            - 1
+            - 2
+    '''
 
-    assert {env.name for env in manager.env_list} == {'DEBUG_OVERRIDE', 'NESTED_FLAG', 'STRING'}
+    with (
+        pytest.raises(ConfigValidationError),
+        patch('qstd_config.loader.file_loader.open', mock_open(read_data=config_yaml)),
+    ):
+        manager.load_config_model()
+
+
+def test_complex_config():
+    manager = ConfigManager(ComplexConfiguration)
+
+    assert manager.env_list == [
+        EnvironmentField(
+            title='value',
+            name='NESTED_VALUE',
+            field_path=['nested', 'value'],
+            type=typing.Union[int, float],
+            default=PydanticUndefined,
+            description=None,
+            examples=None,
+        ),
+        EnvironmentField(
+            title='nested',
+            name='NESTED',
+            field_path=['nested'],
+            type=typing.Union[str, int, typing.List[ComplexConfiguration.Nested]],
+            default=PydanticUndefined,
+            description=None,
+            examples=None,
+        ),
+        EnvironmentField(
+            title='value',
+            name='OPTIONAL_VALUE',
+            field_path=['optional', 'value'],
+            type=typing.Union[float, int],
+            default=PydanticUndefined,
+            description=None,
+            examples=None,
+        ),
+        EnvironmentField(
+            title='value',
+            name='ANNOTATED_VALUE',
+            field_path=['annotated', 'value'],
+            type=typing.Union[float, int],
+            default=PydanticUndefined,
+            description=None,
+            examples=None,
+        ),
+    ]

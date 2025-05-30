@@ -1,27 +1,33 @@
-# QSTD Config
+# qstd-config
 
-`qstd_config` is a Python library for loading, validating, and safely accessing configuration.  
-It supports hierarchical configuration loading from multiple YAML files, overrides via environment variables,
-and the ability to reload the configuration at runtime without restarting the process. It also supports
-synchronization between processes using `multiprocessing.Manager().dict()`.
-
----
-
-## Features
-
-- Load configuration from multiple YAML files
-- Override values via environment variables
-- Pydantic-based validation and typing
-- Support for nested models
-- Runtime-safe proxy access to configuration
-- Reload configuration in-place via `load_config_model()`
-- Config path resolution via CLI (`--config`) or environment variable
-- Built-in environment variable metadata with rendering support
-- Multiprocessing support with shared configuration
+A lightweight and flexible configuration management library for Python applications, built on top of Pydantic.  
+It allows you to load and validate settings from multiple sources
+(YAML/JSON files, environment variables, or custom loaders), merge them via strategy,
+and supports hot-reload as well as multiprocess-safe sharing.
 
 ---
 
-## Installation
+## Key Features
+
+- **Chain of loaders**: load configuration from multiple sources (files, environment variables, custom loaders).
+- **Pydantic integration**: validate the final config using a `BaseModel`.
+- **Flexible merge strategies**: deep merge by default, with support for custom strategies.
+- **ProxyConfig**: proxy object with `reload()`, `setup()` methods and model attribute access.
+- **Hot-reload support**: update configuration at runtime without restarting the process.
+- **Multiprocessing storage**: share configuration between processes using `multiprocessing.Manager().dict()`.
+- **Extensibility**: plug in custom loaders, merge strategies, and storages.
+
+---
+
+## Documentation
+
+- [ConfigManager](https://github.com/QuisEgoSum/qstd-config/blob/release/v1.0/docs/CONFIG_MANAGER.md)
+- [Config Proxy and Storage](https://github.com/QuisEgoSum/qstd-config/blob/release/v1.0/docs/PROXY_AND_STORAGE.md)
+- [Extension](https://github.com/QuisEgoSum/qstd-config/blob/release/v1.0/docs/EXTENSION.md)
+
+---
+
+## Install
 
 ```bash
 pip install qstd-config
@@ -29,172 +35,108 @@ pip install qstd-config
 
 ---
 
-## Basic example
+## Quick start
 
 ```python
 from pydantic import BaseModel
 from qstd_config import ConfigManager
 
-class DatabaseConfig(BaseModel):
-    host: str
-    port: int
 
 class AppConfig(BaseModel):
-    debug: bool
-    db: DatabaseConfig
+    class DB(BaseModel):
+        host: str = "localhost"
+        port: int = 5432
+
+    debug: bool = False
+    db: DB
+
 
 manager = ConfigManager(
     AppConfig,
-    project_metadata={"name": "my_app", "version": "1.0.0"}
+    project_name="My App",
+    config_paths=["./config.yaml"],
+    default_config_values={"debug": False},
 )
-
-config = manager.load_config_model()
-print(config.db.host)
-```
-
----
-
-## Configuration sources and priority
-
-1. Environment variables
-2. Paths from CLI arguments (`--config` / `-c`)
-3. Paths from the `MY_APP_CONFIG` environment variable
-4. Paths explicitly passed via `config_paths` argument
-
-Multiple paths can be passed using `;` as separator — they will be applied top to bottom as overrides.
-
----
-
-## Environment variable naming
-
-Variable names follow the format:
-
-```
-{PROJECT_NAME}_{PATH_TO_FIELD}
-```
-
-Where:
-- `PROJECT_NAME` is returned by `ConfigManager.get_project_name()` (can be overridden)
-- `PATH_TO_FIELD` reflects field nesting, joined by `_`
-- All segments are uppercased and sanitized (non-alphanumeric replaced by `_`)
-
-You can explicitly override the env name:
-
-```python
-Field(..., json_schema_extra={"env": "CUSTOM_ENV_NAME"})
-```
-
----
-
-## CLI and environment integration
-
-### CLI usage
-
-```bash
-python app.py --config=./base.yaml;./override.yaml
-```
-
-### ENV usage
-
-```bash
-export MY_APP_CONFIG=./base.yaml;./override.yaml
-```
-
----
-
-## Multiprocessing support
-
-When using `MultiprocessingStorage`, configuration is synchronized between processes
-using `multiprocessing.Manager().dict()`.
-
-### Behavior
-
-- In the main process, you may call `load_config_model()` before forking — this will load config from all sources.
-- In a child process, `set_multiprocessing_context(context)` must be called before access.
-- Accessing configuration before `set_multiprocessing_context()` does not raise an error, but emits a warning and
-returns the uninitialized config state.
-
-### Example
-
-```python
-from multiprocessing import get_context
-from qstd_config import ConfigManager, MultiprocessingStorage
-
-manager = ConfigManager(..., storage=MultiprocessingStorage)
 config = manager.load_config_model()
 
-def worker(context):
-    manager.set_multiprocessing_context(context)
-    manager.load_config_model()
-    print(config.debug)
-
-ctx = manager.get_multiprocessing_context()
-get_context("spawn").Process(target=worker, args=(ctx,), daemon=True).start()
+print(config.db.host, config.db.port, config.debug)
 ```
 
 ---
 
-## ConfigManager
+## Environment variables
 
-| Parameter                      | Type                                               | Description                                                                                                                                                |
-|--------------------------------|----------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `config_cls`                   | `Type[BaseModel]`                                  | Root Pydantic model that defines and validates the configuration structure                                                                                 |
-| `project_metadata`             | `dict` (typically `{"name": str, "version": str}`) | Project metadata used in environment prefix and optionally injected into the config                                                                        |
-| `project_metadata_as`          | `Optional[str]`                                    | Key under which `project_metadata` will be included in the config. If `None`, metadata is not injected.                                                    |
-| `storage`                      | `Type[StorageABC]`                                 | Storage implementation used for maintaining current config. Defaults to `InMemoryStorage`. Can be set to `MultiprocessingStorage` for multiprocess sharing |
-| `config_paths`                 | `List[str]`                                        | List of configuration file paths to load                                                                                                                   |
-| `root_config_path`             | `Optional[str]`                                    | Root directory used to resolve relative config paths                                                                                                       |
-| `pre_validation_hook`          | `Callable[[dict], dict]`                           | Optional hook to modify raw configuration dict before validation (e.g., expand paths, inject secrets)                                                      |
-| `parse_config_paths_from_args` | `bool`                                             | If `True`, reads config file paths from CLI arguments `--config/-c`                                                                                        |
-| `parse_config_paths_from_env`  | `bool`                                             | If `True`, reads config file paths from the environment variable `{PROJECT_NAME}_CONFIG`                                                                   |
-| `multiprocessing_manager`      | `multiprocessing.Manager`                          | Optional custom multiprocessing manager. Used only with `MultiprocessingStorage`                                                                           |
-
-
-| Method                                 | Description                                                             |
-|----------------------------------------|-------------------------------------------------------------------------|
-| `load_config_model()`                  | Validates and updates configuration model and proxy                     |
-| `get_multiprocessing_context()`        | Returns a shared dict for child processes                               |
-| `set_multiprocessing_context(context)` | Sets the shared dict inside a subprocess                                |
-| `render_env_help()`                    | Returns a human-readable help string for environment variables          |
-| `used_env`                             | List of environment variables that were applied                         |
-| `env_list`                             | Full list of environment-bound fields and metadata (`EnvironmentField`) |
-
-
-> A single `ConfigManager` instance manages one `ProxyConfig`. Repeated calls to `load_config_model()` update the internal state, and all references to the proxy remain valid and reflect the new configuration.
-
----
-
-## ProxyConfig object
-
-Provides typed, transparent access to current configuration.  
-Acts as a proxy to the latest state in the underlying `Storage`. Automatically updated when calling `load_config_model()`.
-
-Supports:
-
-- Attribute access to fields (e.g. `config.some_field`)
-- `is_ready` property to check initialization status (useful for multiprocessing startup)
-
----
-
-## Render environment variable documentation
+The list of supported environment variables is automatically generated based on the structure of the config model.
+You can override variable names explicitly via `json_schema_extra` in Pydantic’s Field. For example:
 
 ```python
-from qstd_config.manager import ConfigManager
+from pydantic import BaseModel, Field
 
-manager = ConfigManager(...)
-print(manager.render_env_help())
+class AppConfig(BaseModel):
+    class DB(BaseModel):
+        host: str = Field("localhost")
+        port: int = Field(5432, json_schema_extra={'env': 'DATABASE_PORT'})
+
+    debug: bool = False
+    db: DB
 ```
 
-This can be used in your CLI:
+Recognized environment variables:
+- `DEBUG`
+- `DB_HOST`
+- `DATABASE_PORT`
 
-```python
-if "--env-help" in sys.argv:
-    print(manager.render_env_help())
-    sys.exit(0)
-```
+If `project_name="My App"` is specified, variables will be prefixed:
+- `MY_APP_DEBUG`
+- `MY_APP_DB_HOST`
+- `MY_APP_DATABASE_PORT`
 
 ---
+
+## Configuration paths
+
+
+You can provide configuration file paths from multiple sources.
+The order below defines the **precedence** (higher overrides lower):
+1. CLI argument: `--config=/path/to/config.yaml`
+2. Environment variable: `MY_APP_CONFIG=/path1.yaml;/path2.yaml`
+3. `config_paths` argument passed explicitly to the manager
+
+---
+
+## Tests
+
+```shell
+pytest --cov=qstd_config --cov-report=term-missing
+```
+
+## Compatibility
+
+Tested on Python 3.9–3.12.
 
 ## License
 
-MIT
+MIT © QuisEgoSum
+
+```text
+Copyright (c) 2025 QuisEgoSum
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```

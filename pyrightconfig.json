@@ -1,6 +1,12 @@
 {
-  "include": ["qstd_config", "tests"],
-  "exclude": ["build", "dist", ".venv", "examples"],
+  "include": ["src", "tests", "example"],
+  "exclude": ["build", "dist", ".venv"],
+  "executionEnvironments": [
+    {
+      "root": "./src",
+      "extraPaths": ["./src"]
+    }
+  ],
   "reportMissingImports": true,
   "reportMissingTypeStubs": true,
   "reportOptionalMemberAccess": true,
