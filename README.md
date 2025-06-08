@@ -1,139 +1,142 @@
+# qstd-config
 
-# Project Configuration Manager
-
-Supports configuration from yaml files and env.
-
-The order of configuration overload(from highest priority to lowest):
-- Parameters set in environment variables;
-- Files specified via the environment variable `{PROJECT_NAME}_CONFIG`;
-- Files specified in the process startup parameter `--config`(`-c`);
-- Files specified by the `config_paths` parameter in the initialization of the `ConfigManager` class.
+A lightweight and flexible configuration management library for Python applications, built on top of Pydantic.  
+It allows you to load and validate settings from multiple sources
+(YAML/JSON files, environment variables, or custom loaders), merge them via strategy,
+and supports hot-reload as well as multiprocess-safe sharing.
 
 ---
 
-Manager Parameters:
-- `config_cls`(`pydantic.BaseModel`) - class, used for validating and typing config fields;
-- `project_metadata`(`dict`) - Basic information about the project (name, version).
-`name` is used to generate environment variables;
-- `config_paths`(`List[str]`) - Paths to the application configuration files;
-- `project_metadata_as`: (`Optional[str]`) - This key will be assigned to `project_metadata` in the configuration object.
-By default `project`. If `None` is set, `project_metadata` will not be added to the config;
-- `root_config_dir`(`Optional[str]`) - Base path to the directory with configuration files to set relative paths;
-- `pre_validation_hook`(`Callable[[dict], dict]`) - The method called after loading the configuration before validation.
-If it is necessary to perform any transformations (downloading key files from the file system, etc.);
-- `parse_config_paths_from_args`(`bool`) - Specifies whether it is necessary to automatically search for configuration
-files in the command line options or not;
-- `parse_config_paths_from_env`(`bool`) - Specifies whether it is necessary to automatically search for configuration
-files in an environment variable(`{PROJECT_NAME}_CONFIG`) or not;
-- `multiprocessing_mode`(`bool`) - Specifies whether it is necessary to use `multiprocessing.Manager().dict()` to store
-the configuration.
+## Key Features
 
+- **Chain of loaders**: load configuration from multiple sources (files, environment variables, custom loaders).
+- **Pydantic integration**: validate the final config using a `BaseModel`.
+- **Flexible merge strategies**: deep merge by default, with support for custom strategies.
+- **ProxyConfig**: proxy object with `reload()`, `setup()` methods and model attribute access.
+- **Hot-reload support**: update configuration at runtime without restarting the process.
+- **Multiprocessing storage**: share configuration between processes using `multiprocessing.Manager().dict()`.
+- **Extensibility**: plug in custom loaders, merge strategies, and storages.
 
 ---
 
-Manager Methods:
-- `load_config` - Loads the configuration from configuration files and environment variables.
-It can be called repeatedly to update the configuration object. Returns the proxy configuration object;
-- `get_config` - Returns a new proxy object to the configuration without loading the configuration;
-- `get_multiprocessing_config_dict` - Returns `multiprocessing.Manager().dict()` for passing to child processes.
-This option is available only with `multiprocessing_mode=True`;
-- `set_multiprocessing_config_dict` - Accepts `multiprocessing.Manager().dict()`. Sets as the configuration source.
-It must be installed in child processes during initialization. Available only with `multiprocessing_mode=True`.
+## Documentation
+
+- [ConfigManager](https://github.com/QuisEgoSum/qstd-config/blob/release/v1.0/docs/CONFIG_MANAGER.md)
+- [Config Proxy and Storage](https://github.com/QuisEgoSum/qstd-config/blob/release/v1.0/docs/PROXY_AND_STORAGE.md)
+- [Extension](https://github.com/QuisEgoSum/qstd-config/blob/release/v1.0/docs/EXTENSION.md)
 
 ---
 
-Creation of environment variable names:
+## Install
 
-
-A transformation is used for each element of the name:
-```python
-import re
-re.sub(pattern='[^a-zA-Z0-9]', repl='_', flags=re.DOTALL, string=name.upper())
+```bash
+pip install qstd-config
 ```
 
-For example, the project name `Test project` is converted to `TEST_PROJECT`.
+---
 
-The variable name is formed from `{PROJECT_NAME}_` + `'_'.join(path_to_variable)`.
+## Quick start
 
 ```python
 from pydantic import BaseModel
-from qstd_config import BaseConfig, ConfigManager
+from qstd_config import ConfigManager
 
-class Config(BaseConfig):
-    class Example(BaseModel):
-        class Child(BaseModel):
-            value: str
-        
-        child: Child
-        value: int
-        
-    example: Example
 
-manager = ConfigManager(Config, {'name': 'Test project', 'version': 'version'})
-```
+class AppConfig(BaseModel):
+    class DB(BaseModel):
+        host: str = "localhost"
+        port: int = 5432
 
-Generates the following environment variables:
-- `TEST_PROJECT_EXAMPLE_VALUE`;
-- `TEST_PROJECT_EXAMPLE_CHILD_VALUE`.
+    debug: bool = False
+    db: DB
 
----
 
-Basic example
-
-```python
-from pydantic import BaseModel
-
-from qstd_config import ConfigManager, BaseConfig
-
-class Config(BaseConfig):
-    class Example(BaseModel):
-        example: str
-    
-    example: Example
-        
-        
 manager = ConfigManager(
-    Config,
-    {'name': 'Project name', 'version': 'project version'}
+    AppConfig,
+    project_name="My App",
+    config_paths=["./config.yaml"],
+    default_config_values={"debug": False},
 )
+config = manager.load_config_model()
 
-config = manager.load_config()
+print(config.db.host, config.db.port, config.debug)
 ```
 
 ---
 
-Basic multiprocessing example
+## Environment variables
+
+The list of supported environment variables is automatically generated based on the structure of the config model.
+You can override variable names explicitly via `json_schema_extra` in Pydantic’s Field. For example:
 
 ```python
-from multiprocessing import get_context
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from qstd_config import ConfigManager, BaseConfig
+class AppConfig(BaseModel):
+    class DB(BaseModel):
+        host: str = Field("localhost")
+        port: int = Field(5432, json_schema_extra={'env': 'DATABASE_PORT'})
 
-class Config(BaseConfig):
-    class Example(BaseModel):
-        example: str
-    
-    example: Example
-        
-        
-manager = ConfigManager(
-    Config,
-    {'name': 'Project name', 'version': 'project version'},
-    multiprocessing_mode=True
-)
-
-config = manager.load_config()
-
-def run_child_process(config_dict):
-    manager.set_multiprocessing_config_dict(config_dict)
-    ...
-
-
-get_context('spawn').Process(
-    target=run_child_process,
-    daemon=True,
-    args=(manager.get_multiprocessing_config_dict(),)
-).start()
+    debug: bool = False
+    db: DB
 ```
 
+Recognized environment variables:
+- `DEBUG`
+- `DB_HOST`
+- `DATABASE_PORT`
+
+If `project_name="My App"` is specified, variables will be prefixed:
+- `MY_APP_DEBUG`
+- `MY_APP_DB_HOST`
+- `MY_APP_DATABASE_PORT`
+
+---
+
+## Configuration paths
+
+
+You can provide configuration file paths from multiple sources.
+The order below defines the **precedence** (higher overrides lower):
+1. CLI argument: `--config=/path/to/config.yaml`
+2. Environment variable: `MY_APP_CONFIG=/path1.yaml;/path2.yaml`
+3. `config_paths` argument passed explicitly to the manager
+
+---
+
+## Tests
+
+```shell
+pytest --cov=qstd_config --cov-report=term-missing
+```
+
+## Compatibility
+
+Tested on Python 3.9–3.12.
+
+## License
+
+MIT © QuisEgoSum
+
+```text
+Copyright (c) 2025 QuisEgoSum
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
