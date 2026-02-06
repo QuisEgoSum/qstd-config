@@ -30,7 +30,7 @@ manager = ConfigManager(
     default_config_values={"debug": False},
     custom_loaders=[MyLoader()],
     chain_loader_factory=custom_chain_loader_factory,
-    merge_strategy=DeepMergeStrategy,
+    merge_strategy=DeepMergeStrategy(),
 )
 
 config = manager.load_config_model()
