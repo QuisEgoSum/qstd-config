@@ -106,7 +106,7 @@ def get_config_paths(
     """
     Compose and validate configuration file paths from multiple sources.
 
-    Sources (in order of precedence):
+    Sources (effective precedence, highest first): args -> env -> base_paths:
       - `base_paths` (user-provided list)
       - environment variables (`{PROJECT_NAME}_CONFIG` or `CONFIG`)
       - command-line arguments (`--config`, `-c`)

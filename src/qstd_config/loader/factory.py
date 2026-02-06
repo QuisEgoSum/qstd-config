@@ -27,16 +27,17 @@ def default_chain_loader_factory(
     followed by a FileLoader (for YAML/JSON/etc), and finally an EnvLoader (for environment variables).
 
     The resulting order of application is:
-        1. Custom loaders (lowest priority, override everything)
+        1. Custom loaders (applied first)
         2. FileLoader
-        3. EnvLoader (highest priority)
+        3. EnvLoader (applied last)
 
     All loaders are merged via the provided ConfigMergeStrategy.
 
     Note:
-        Because the loaders are applied sequentially and merged cumulatively, later loaders
-        override the keys of earlier ones. If you want your custom loaders to take precedence
-        over file or environment sources, include them first in the list.
+        Loaders are applied sequentially; later loaders override earlier ones.
+        In the default factory, environment variables have the highest precedence.
+        Custom loaders are applied first (lowest precedence). To give custom loaders
+        higher precedence, use a custom ChainLoader configuration.
 
     :param model: Pydantic model class for env variable resolution.
     :param paths: List of config file paths to be passed to FileLoader.
