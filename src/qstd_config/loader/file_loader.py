@@ -48,7 +48,7 @@ class YamlFileLoader(SingleFileLoaderProtocol):
 
         logger.debug('Reading config file: %s', path)
 
-        with open(path) as f:
+        with open(path, encoding='utf-8') as f:
             data: typing.Optional[typing.Dict[str, typing.Any]] = (
                 yaml.safe_load(f) or {}
             )
@@ -91,7 +91,7 @@ class JsonFileLoader(SingleFileLoaderProtocol):
 
         logger.debug('Reading config file: %s', path)
 
-        with open(path) as f:
+        with open(path, encoding='utf-8') as f:
             data: typing.Optional[typing.Dict[str, typing.Any]] = json.load(f)
             if not isinstance(data, dict):
                 raise InvalidFileContentError(path, type(data))

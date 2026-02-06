@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.2] - 2026-02-06
+
+### Fixed
+- Configuration files are now always read using UTF-8 encoding.
+- Clarified and corrected documentation for configuration path precedence
+  and loader application order.
+
+### Added
+- Added test coverage for Python 3.13 in tox.
+- Declared Python 3.13 support in package classifiers.
+
+---
+
 ## [1.0.1] - 2025-06-15
 
 ### Added
